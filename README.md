@@ -1,3 +1,5 @@
+![Hackage](https://img.shields.io/hackage/v/from-env)
+
 # from-env
 
 Haskell package to construct datatypes from environment variables.
