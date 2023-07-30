@@ -17,6 +17,8 @@ module System.Environment.FromEnv
   , FromEnvOptions ( optsFieldLabelModifier )
   -- * Generic parsing class
   , GFromEnv (..)
+  -- * Errors
+  , FromEnvError (..)
 ) where
 
 import           Control.Applicative                 (liftA2)
@@ -31,12 +33,12 @@ import           System.Environment.FromEnv.TryParse
 
 -- | Class for things that can be created from environment variables.
 class FromEnv a where
-  fromEnv :: (MonadIO m) => m (Maybe a)
-  default fromEnv :: (MonadIO m, Generic a, GFromEnv' (Rep a)) => m (Maybe a)
+  fromEnv :: (MonadIO m) => m (Either FromEnvError a)
+  default fromEnv :: (MonadIO m, Generic a, GFromEnv' (Rep a)) => m (Either FromEnvError a)
   fromEnv = gFromEnv defaultEnvOpts
 
 -- | Try to convert a field name into an environment variable name.
-type FieldLabelModifier = String -> Maybe String
+type FieldLabelModifier = String -> String
 
 -- | Options to specify how to construct your datatype from environment variables.
 -- Options can be set using record update syntax and 'defaultEnvOpts'.
@@ -60,19 +62,19 @@ newtype FromEnvOptions = FromEnvOptions
 -- @
 defaultEnvOpts :: FromEnvOptions
 defaultEnvOpts = FromEnvOptions
-  { optsFieldLabelModifier = Just . screamingSnake
+  { optsFieldLabelModifier =  screamingSnake
   }
 
 class GFromEnv a where
   -- | Try to construct a value from environment variables.
-  gFromEnv :: (MonadIO m) => FromEnvOptions -> m (Maybe a)
-  default gFromEnv :: (MonadIO m, Generic a, GFromEnv' (Rep a)) => FromEnvOptions -> m (Maybe a)
+  gFromEnv :: (MonadIO m) => FromEnvOptions -> m (Either FromEnvError a)
+  default gFromEnv :: (MonadIO m, Generic a, GFromEnv' (Rep a)) => FromEnvOptions -> m (Either FromEnvError a)
   gFromEnv opts = fmap to <$> gFromEnv' opts
 
 instance (Generic a, GFromEnv' (Rep a)) => GFromEnv a
 
 class GFromEnv' f where
-  gFromEnv' :: (MonadIO m) => FromEnvOptions -> m (Maybe (f a))
+  gFromEnv' :: (MonadIO m) => FromEnvOptions -> m (Either FromEnvError (f a))
 
 instance {-# OVERLAPPING #-} GFromEnv' f => GFromEnv' (M1 i c f) where
   gFromEnv' converter = fmap M1 <$> gFromEnv' converter
@@ -88,8 +90,25 @@ instance {-# OVERLAPPING #-} (Selector s, TryParse a) => GFromEnv' (M1 S s (K1 i
     let m :: M1 i s f a
         m = undefined
         name = optsFieldLabelModifier opts $ selName m
-    case name of
-      Just name' -> do
-        c <- liftIO $ lookupEnv name'
-        return $ fmap (M1 . K1) (tryParse =<< c)
-      Nothing -> return Nothing
+    envValue <- liftIO $ lookupEnv name
+    return $ do
+        v <- maybeToEither (UnsetVariable name) envValue
+        r <- maybeToEither (FailedToParse name v) (tryParse v)
+        return . M1 . K1 $ r
+
+maybeToEither :: b -> Maybe a -> Either b a
+maybeToEither _ (Just a) = Right a
+maybeToEither b Nothing  = Left b
+
+data FromEnvError
+    = UnsetVariable String
+    -- ^ A field was unset in the environment
+    | FailedToParse String String
+    -- ^ Failed to parse a given field from an environment variable
+    deriving Eq
+
+instance Show FromEnvError where
+    show (UnsetVariable fieldName) =
+        "The field " <> fieldName <> " was unset in the environment"
+    show (FailedToParse fieldName envValue) =
+        "Failed to parse the field " <> fieldName <> " from the value " <> envValue
