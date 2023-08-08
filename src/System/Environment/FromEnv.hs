@@ -23,6 +23,7 @@ module System.Environment.FromEnv
 
 import           Control.Applicative                 (liftA2)
 import           Control.Monad.IO.Class              (MonadIO, liftIO)
+import           Data.List                           (intercalate)
 import           GHC.Generics
 import           System.Environment                  (lookupEnv)
 
@@ -36,6 +37,28 @@ class FromEnv a where
   fromEnv :: (MonadIO m) => m (Either FromEnvError a)
   default fromEnv :: (MonadIO m, Generic a, GFromEnv' (Rep a)) => m (Either FromEnvError a)
   fromEnv = gFromEnv defaultEnvOpts
+
+instance (FromEnv a, FromEnv b) => FromEnv (a, b) where
+  fromEnv = do
+    t <- (,) <$> fromEnv <*> fromEnv
+    return $ case t of
+      (Left e1, Left e2) -> Left $ AggregateError [e1, e2]
+      (Left e, Right _)  -> Left e
+      (Right _, Left e)  -> Left e
+      (Right a, Right b) -> Right (a, b)
+
+instance (FromEnv a, FromEnv b, FromEnv c) => FromEnv (a, b, c) where
+  fromEnv = do
+    t <- (,,) <$> fromEnv <*> fromEnv <*> fromEnv
+    return $ case t of
+      (Left e1, Left e2, Left e3)  -> Left $ AggregateError [e1, e2, e3]
+      (Left e1, Left e2, Right  _) -> Left $ AggregateError [e1, e2]
+      (Right _, Left e1, Left e2)  -> Left $ AggregateError [e1, e2]
+      (Left e1, Right _, Left e2)  -> Left $ AggregateError [e1, e2]
+      (Left e, Right _, Right _)   -> Left e
+      (Right _, Left e, Right _)   -> Left e
+      (Right _, Right _, Left e)   -> Left e
+      (Right a, Right b, Right c)  -> Right (a, b, c)
 
 -- | Try to convert a field name into an environment variable name.
 type FieldLabelModifier = String -> String
@@ -105,6 +128,8 @@ data FromEnvError
     -- ^ A field was unset in the environment
     | FailedToParse String String
     -- ^ Failed to parse a given field from an environment variable
+    | AggregateError [FromEnvError]
+    -- ^ There was more than one error.
     deriving Eq
 
 instance Show FromEnvError where
@@ -112,3 +137,4 @@ instance Show FromEnvError where
         "The field " <> fieldName <> " was unset in the environment"
     show (FailedToParse fieldName envValue) =
         "Failed to parse the field " <> fieldName <> " from the value " <> envValue
+    show (AggregateError errors) = intercalate ", " (map show errors)

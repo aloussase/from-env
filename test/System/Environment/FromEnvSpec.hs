@@ -37,6 +37,23 @@ fromEnvSpec =
       config `shouldSatisfy` isRight
       unwrapEither config `shouldBe` Config "hello" "world"
 
+    describe "the tuple instances" $ do
+      it "return a list of errors when more than one value failed to build" $ do
+        Left (AggregateError [e1, e2]) <- fromEnv @(Config, StorageConfig)
+        e1 `shouldBe` UnsetVariable "CONFIG_DB_URL"
+        e2 `shouldBe` UnsetVariable "S3_BUCKET_URL"
+
+      it "return the correct values when setting valid environment variables" $ do
+          setEnv "CONFIG_DB_URL" "hello"
+          setEnv "CONFIG_API_KEY" "world"
+          setEnv "S3_BUCKET_URL" "https://google.com"
+
+          (config, storageConfig) <- unwrapEither <$> fromEnv
+
+          config `shouldBe` Config "hello" "world"
+          storageConfig `shouldBe` StorageConfig "https://google.com"
+
+
 gFromEnvSpec :: Spec
 gFromEnvSpec =
     describe "gFromEnv" $ after_ clearEnvs $ do
@@ -50,6 +67,11 @@ gFromEnvSpec =
 data Config = Config
   { configDbURL  :: !String
   , configApiKey :: !String
+  }
+  deriving (Eq, Show, Generic, FromEnv)
+
+newtype StorageConfig = StorageConfig
+  { s3BucketUrl :: String
   }
   deriving (Eq, Show, Generic, FromEnv)
 
