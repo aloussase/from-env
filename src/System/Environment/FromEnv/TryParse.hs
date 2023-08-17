@@ -14,8 +14,9 @@ import           Text.Read (readMaybe)
 class TryParse a where
   tryParse :: String -> Maybe a
 
-instance TryParse Int where
-  tryParse = readMaybe
+instance TryParse Int where tryParse = readMaybe
+instance TryParse Double where tryParse = readMaybe
+instance TryParse Float where tryParse = readMaybe
 
 instance TryParse [Char] where
    tryParse = Just
@@ -27,3 +28,6 @@ instance TryParse Char where
 instance TryParse Text where
   tryParse = Just . T.pack
 
+instance TryParse Bool where
+  tryParse "" = Just False
+  tryParse _  = Just True

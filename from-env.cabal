@@ -1,6 +1,6 @@
 cabal-version:      2.4
 name:               from-env
-version:            0.1.2.0
+version:            0.1.3.0
 synopsis:
   Provides a generic way to construct values from environment variables.
 
